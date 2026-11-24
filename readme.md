@@ -11,12 +11,39 @@ This document explains the build stages, what happens internally, and the role o
 ## How to use
 
 We need to build this on a linux host or VM with a Linux kernel.
-Cross-architecture builds (e.g. building AMD64 from Apple Silicon) are a known issue — cross-compiling on Mac Silicon is currently broken. https://github.com/podman-desktop/extension-bootc/issues/1475 
 
 On a VM install a Fedora/Redhat/CentOS/Rocky with podman and then build the bootc case container.
 ```
 podman build --platform="linux/amd64" --security-opt=label=disable --cap-add=all --device /dev/fuse --iidfile /tmp/image-id -t rocky-bootc -f 9/Containerfile 9
 ```
+
+### Building AMD64 on Apple Silicon (local builds only)
+
+On an Apple Silicon Mac the Podman machine has to emulate x86_64, and neither available emulator can run the whole build:
+
+| Build step | Rosetta | QEMU |
+|---|---|---|
+| `rpm-ostree compose` (uses `bwrap`, needs Linux namespaces) | works | fails: `bwrap: Creating new namespace failed: Invalid argument` |
+| `bootc container lint` | fails: `Linting: Function not implemented (os error 38)` | works |
+
+The Rosetta failure started when the Podman machine image moved to a Linux kernel 6.13 or newer. The Podman machine image itself notes, in `/etc/systemd/system/rosetta-activation.service`, that Rosetta is not functional on those kernels. Related issue: https://github.com/podman-desktop/extension-bootc/issues/1475
+
+The workaround is to build with Rosetta and skip the lint:
+
+1. Make sure Rosetta is active in the Podman machine. Inside the VM, Rosetta is only activated when the marker file `/etc/containers/enable-rosetta` exists. The Podman Desktop "Rosetta" setting only applies when a machine is created, so for an existing machine create the marker and restart:
+   ```
+   export CONTAINERS_MACHINE_PROVIDER=applehv   # needed if containers.conf sets another provider, e.g. libkrun
+   podman machine ssh podman-machine-default 'sudo touch /etc/containers/enable-rosetta'
+   podman machine stop podman-machine-default
+   podman machine start podman-machine-default
+   podman machine ssh podman-machine-default 'ls /proc/sys/fs/binfmt_misc/'   # should list "rosetta"
+   ```
+2. Build with `SKIP_LINT=1`:
+   ```
+   podman build --platform="linux/amd64" --build-arg SKIP_LINT=1 --security-opt=label=disable --cap-add=all --device /dev/fuse -t rocky-bootc -f 9/Containerfile 9
+   ```
+
+`SKIP_LINT=1` removes the `bootc container lint` call from `bootc-base-imagectl build-rootfs` and skips the lint in the final stage. The default is `0`, so builds on a native x86_64 host still run the lint. Images built with `SKIP_LINT=1` are for local testing only. Build release images on a native x86_64 host.
 
 ## High Level Architecture
 
