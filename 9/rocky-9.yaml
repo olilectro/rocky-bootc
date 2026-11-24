@@ -20,6 +20,14 @@ postprocess:
     [install]
     root-fs-type = "xfs"
     EOF
+
+    # kdump needs crashkernel= kargs and a writable /boot, which this base
+    # image does not provide, so it fails on boot. Derived images can opt in
+    # with `systemctl enable kdump.service` plus a kargs.d crashkernel entry.
+    mkdir -p /usr/lib/systemd/system-preset/
+    cat > /usr/lib/systemd/system-preset/80-rocky-bootc.preset << EOF
+    disable kdump.service
+    EOF
   - |
     #!/usr/bin/env bash
     set -euo pipefail
