@@ -19,6 +19,14 @@ COPY --from=repos /etc/yum.repos.d/*.repo /etc/yum.repos.d/
 COPY --from=repos /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9 /etc/pki/rpm-gpg
 COPY rocky-9.yaml /usr/share/doc/bootc-base-imagectl/manifests/
 
+# SKIP_LINT=1 skips `bootc container lint` for local amd64 builds on Apple
+# Silicon: under Rosetta (needed for rpm-ostree/bwrap) bootc lint fails with
+# ENOSYS on VM kernels >= 6.13. Keep the default (0) for real/CI builds.
+ARG SKIP_LINT=0
+RUN if [ "$SKIP_LINT" = 1 ]; then \
+      sed -i '/# And run the bootc linter/,/check=True)/d' /usr/libexec/bootc-base-imagectl; \
+    fi
+
 RUN /usr/libexec/bootc-base-imagectl build-rootfs --reinject --manifest=rocky-9 /target-rootfs
 
 FROM scratch
@@ -32,6 +40,7 @@ LABEL containers.bootc="1" \
         org.opencontainers.image.vendor="Rocky Enterprise Software Foundation" \
         org.opencontainers.image.description="Rocky Linux Bootable Container Image"
 ENV container=oci
-RUN bootc container lint --fatal-warnings
+ARG SKIP_LINT=0
+RUN if [ "$SKIP_LINT" != 1 ]; then bootc container lint --fatal-warnings; fi
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
